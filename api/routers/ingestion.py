@@ -1,67 +1,84 @@
 import os
 import logging
+import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, UploadFile, File, Form
 
 from api.models.database import KbModel3d, KbModel3dPointCloud, KbProgrammingProjectFile
-from api.schemas.requests import IngestRequest
 from api.schemas.responses import ApiResponse, IngestData, PointCloudInfo
 from api.services.feature_extraction import process_model
-from api.services.stp_converter import is_step_file, is_stl_file, step_to_stl
+from api.services.stp_converter import is_step_file, step_to_stl
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+ALLOWED_EXTENSIONS = {".stl", ".stp", ".step"}
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+
 
 @router.post("/models/ingest")
-def ingest_model(req: IngestRequest, request: Request):
+async def ingest_model(
+    request: Request,
+    file: UploadFile = File(..., description="3D model file (STL/STP/STEP)"),
+    creator: str = Form(..., max_length=64, description="Creator user ID or name"),
+    description: str = Form(None, max_length=500, description="Point cloud description"),
+):
+    settings = request.app.state.settings
     session_factory = request.app.state.db_session_factory
     faiss_manager = request.app.state.faiss_manager
-    settings = request.app.state.settings
 
-    logger.info("Ingest request: file=%s, creator=%s", req.file_path, req.creator)
+    # Validate file extension
+    raw_name = file.filename or ""
+    safe_name = os.path.basename(raw_name)
+    file_ext = os.path.splitext(safe_name)[1].lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        logger.warning("Unsupported format: %s", raw_name)
+        return ApiResponse(code=40003, message=f"Unsupported file format: {file_ext}, only STL/STP/STEP accepted")
+
+    # Read and validate file size
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        logger.warning("File too large: %d bytes", len(content))
+        return ApiResponse(code=40004, message=f"File too large (max {MAX_FILE_SIZE // 1024 // 1024}MB)")
+    file_size_bytes = len(content)
+
+    # Save with unique name to avoid collision
+    os.makedirs(settings.upload_dir, exist_ok=True)
+    unique_name = f"{uuid.uuid4().hex[:8]}_{safe_name}"
+    file_path = os.path.join(settings.upload_dir, unique_name)
+    with open(file_path, "wb") as f:
+        f.write(content)
+    ext = file_ext.lstrip(".")
+
+    logger.info("Ingest request: file=%s (%d bytes), creator=%s", safe_name, file_size_bytes, creator)
 
     with session_factory() as session:
-        # Validate file exists and format
-        file_path = req.file_path
-        if not os.path.exists(file_path):
-            logger.warning("File not found: %s", file_path)
-            return ApiResponse(code=40001, message=f"File not found: {file_path}")
-
-        if not (is_stl_file(file_path) or is_step_file(file_path)):
-            logger.warning("Unsupported format: %s", file_path)
-            return ApiResponse(code=40003, message="Unsupported file format, only STL/STP/STEP accepted")
-
-        file_name = os.path.basename(file_path)
-        file_ext = os.path.splitext(file_name)[1].lstrip(".")
-        file_size_bytes = os.path.getsize(file_path)
-
         # Step 1: Create kb_model_3d record
         now = datetime.now()
         model = KbModel3d(
-            model_name=file_name,
-            creator=req.creator,
+            model_name=safe_name,
+            creator=creator,
             create_time=now,
         )
         session.add(model)
         session.flush()
         model_id = model.id
-        logger.info("Created kb_model_3d: id=%d, model_name=%s", model_id, file_name)
+        logger.info("Created kb_model_3d: id=%d, model_name=%s", model_id, safe_name)
 
         # Step 2: Create kb_programming_project_file record (project_id=NULL, Java assigns later)
         project_file = KbProgrammingProjectFile(
             project_id=None,
-            file_name=file_name,
+            file_name=safe_name,
             file_type="FILE",
             physical_path=file_path,
             file_size=file_size_bytes,
-            file_ext=file_ext,
-            creator=req.creator,
+            file_ext=ext,
+            creator=creator,
             create_time=now,
         )
         session.add(project_file)
-        logger.info("Created kb_programming_project_file: project_id=NULL, file=%s", file_name)
+        logger.info("Created kb_programming_project_file: project_id=NULL, file=%s", safe_name)
 
         # Step 3: Convert STP to STL if needed
         stl_path = file_path
@@ -102,10 +119,10 @@ def ingest_model(req: IngestRequest, request: Request):
                 point_count=str(result.pc_point_count),
                 sampling_precision=result.sampling_method,
                 file_size=_format_file_size(result.pc_file_size_bytes),
-                description=req.description or "",
+                description=description or "",
                 vector_db_status=1,
                 vector_db_time=now,
-                creator=req.creator,
+                creator=creator,
                 create_time=now,
             )
             session.add(pc_record)
@@ -121,7 +138,7 @@ def ingest_model(req: IngestRequest, request: Request):
                     point_count=str(result.pc_point_count),
                     sampling_precision=result.sampling_method,
                     file_size=_format_file_size(result.pc_file_size_bytes),
-                    description=req.description,
+                    description=description,
                 ),
                 vector_db_status=1,
                 vector_db_time=now,
@@ -129,7 +146,7 @@ def ingest_model(req: IngestRequest, request: Request):
 
         except Exception as e:
             session.rollback()
-            logger.error("Ingestion failed for model_id=%d, file=%s: %s", model_id, file_path, e, exc_info=True)
+            logger.error("Ingestion failed for model_id=%d, file=%s: %s", model_id, safe_name, e, exc_info=True)
             return ApiResponse(code=50001, message=f"Processing failed: {str(e)}")
 
         finally:

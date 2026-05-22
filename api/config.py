@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     sample_points: int = 15000
     pointcloud_dir: str = "./pointcloud"
 
+    # Upload
+    upload_dir: str = "./uploads"
+
     # STP conversion
     step_converter: str = "pythonocc"
 
