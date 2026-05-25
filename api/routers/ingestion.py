@@ -107,8 +107,8 @@ async def ingest_model(
                 result.pc_point_count, result.sampling_method, result.pcd_file_path,
             )
 
-            # Step 5: Add or update FAISS (same file overwrites existing vector)
-            faiss_manager.add_or_update(file_path, model_id, result.feature_vector)
+            # Step 5: Add or update FAISS (dedup by original filename, not UUID path)
+            faiss_manager.add_or_update(safe_name, model_id, result.feature_vector)
             logger.info("FAISS updated: model_id=%d, total_vectors=%d", model_id, faiss_manager.vector_count())
 
             # Step 6: Write kb_model_3d_point_cloud
