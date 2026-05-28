@@ -1,6 +1,9 @@
+import logging
+
 from sqlalchemy import text
 from fastapi import APIRouter, Request
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -13,8 +16,8 @@ def health_check(request: Request):
         with session_factory() as session:
             session.execute(text("SELECT 1"))
         mysql_ok = True
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("MySQL health check failed: %s", e)
 
     return {
         "code": 0,

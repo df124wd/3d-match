@@ -58,3 +58,20 @@ class HealthData(BaseModel):
     faiss_loaded: bool
     faiss_vector_count: int
     mysql_connected: bool
+
+
+class BatchIngestItem(BaseModel):
+    filename: str
+    model_id: Optional[int] = None
+    pointcloud: Optional[PointCloudInfo] = None
+    vector_db_status: int = 0
+    vector_db_time: Optional[datetime] = None
+    oss_url: Optional[str] = None
+    error: Optional[str] = None
+
+
+class BatchIngestData(BaseModel):
+    total: int
+    success: int
+    failed: int
+    results: List[BatchIngestItem]

@@ -21,7 +21,7 @@ class ExtractionResult:
     pc_file_size_bytes: int
 
 
-def stl_to_uniform_point_cloud(stl_path: str, sample_points: int = SAMPLE_POINTS) -> np.ndarray:
+def stl_to_uniform_point_cloud(stl_path: str, sample_points: int = SAMPLE_POINTS) -> tuple[np.ndarray, str]:
     if not os.path.exists(stl_path):
         raise FileNotFoundError(f"STL file not found: {stl_path}")
 

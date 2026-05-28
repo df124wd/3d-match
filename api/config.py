@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     # Upload
     upload_dir: str = "./uploads"
 
+    # OSS (Alibaba Cloud Object Storage)
+    oss_endpoint: str = ""
+    oss_bucket_name: str = ""
+    oss_access_key_id: str = ""
+    oss_access_key_secret: str = ""
+
     # STP conversion
     step_converter: str = "pythonocc"
 

@@ -11,6 +11,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from api.config import Settings
 from api.db.session import create_engine_and_session
 from api.services.faiss_manager import FaissManager
+from api.services.oss_service import OssStorage
 from api.routers import health, ingestion, query, matching
 
 LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
@@ -108,15 +109,33 @@ async def lifespan(app: FastAPI):
     faiss_manager.load()
     app.state.faiss_manager = faiss_manager
 
+    # Initialize OSS if configured
+    oss_storage = None
+    if settings.oss_bucket_name and settings.oss_endpoint:
+        oss_storage = OssStorage(
+            bucket=settings.oss_bucket_name,
+            region=settings.oss_endpoint,
+            access_key_id=settings.oss_access_key_id,
+            access_key_secret=settings.oss_access_key_secret,
+        )
+        logger.info("OSS configured: bucket=%s, region=%s", settings.oss_bucket_name, settings.oss_endpoint)
+    else:
+        logger.warning("OSS not configured — files will be stored locally only")
+
+    app.state.oss_storage = oss_storage
+
     logger.info(
-        "Service started. MySQL=%s:%d DB=%s FAISS vectors=%d",
+        "Service started. MySQL=%s:%d DB=%s FAISS vectors=%d OSS=%s",
         settings.mysql_host, settings.mysql_port, settings.mysql_database,
         faiss_manager.vector_count(),
+        "enabled" if oss_storage else "disabled",
     )
 
     yield
 
     faiss_manager.save()
+    if oss_storage:
+        await oss_storage.close()
     engine.dispose()
     logger.info("Service stopped.")
 
