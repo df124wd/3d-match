@@ -25,7 +25,7 @@ class OssStorage:
     async def _ensure_client(self) -> oss_aio.AsyncClient:
         if self.client is None:
             cfg = oss.config.load_default()
-            cfg.credentials_provider = oss.credentials.AccessKeyCredentialsProvider(
+            cfg.credentials_provider = oss.credentials.StaticCredentialsProvider(
                 access_key_id=self._access_key_id,
                 access_key_secret=self._access_key_secret,
             )

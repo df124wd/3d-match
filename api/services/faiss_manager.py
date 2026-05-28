@@ -43,8 +43,8 @@ class FaissManager:
             self._persist()
 
     def add_or_update(self, file_path: str, model_id: int, vector: np.ndarray) -> None:
-        """同一文件只保留一条向量，已存在则覆盖。"""
-        key = os.path.abspath(file_path)
+        """同一文件只保留一条向量，已存在则覆盖。key 直接使用传入的 file_path 参数。"""
+        key = file_path
         vec = np.ascontiguousarray(vector.reshape(self._dim).astype(np.float32))
         with self._lock:
             is_update = key in self._entries
@@ -76,7 +76,7 @@ class FaissManager:
         return self._index.ntotal
 
     def has_file(self, file_path: str) -> bool:
-        return os.path.abspath(file_path) in self._entries
+        return file_path in self._entries
 
     def _rebuild(self) -> None:
         """从 _entries 字典重建 FAISS 索引。"""
